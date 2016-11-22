@@ -74,7 +74,7 @@ unsigned int debug=0;
 unsigned int dump_pipeline=1;
 
 enum instruction_type {NOP, RTYPE, LW, SW, BRANCH, JUMP, JAL, SYSCALL};
-
+//testing commit
 typedef struct rtype
 {
     char instruction[16];
