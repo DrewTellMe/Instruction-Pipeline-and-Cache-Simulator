@@ -37,6 +37,8 @@ void iplc_sim_process_pipeline_nop();
 // Outout performance results
 void iplc_sim_finalize();
 
+
+
 typedef struct associativity
 {
     int vb; /* valid bit */
@@ -68,10 +70,11 @@ unsigned int pipeline_cycles=0;   // how many cycles did you pipeline consume
 unsigned int instruction_count=0; // home many real instructions ran thru the pipeline
 unsigned int branch_predict_taken=0;
 unsigned int branch_count=0;
-unsigned int correct_branch_predictions=0;
+ unsigned int correct_branch_predictions=0;
 
 unsigned int debug=0;
 unsigned int dump_pipeline=1;
+
 
 enum instruction_type {NOP, RTYPE, LW, SW, BRANCH, JUMP, JAL, SYSCALL};
 //testing commit
@@ -166,6 +169,7 @@ void iplc_sim_init(int index, int blocksize, int assoc)
         exit(-1);
     }
     
+    //array of cache_line_t's
     cache = (cache_line_t *) malloc((sizeof(cache_line_t) * 1<<index));
     
     for (i = 0; i < (1<<index); i++) {
@@ -195,8 +199,30 @@ void iplc_sim_LRU_replace_on_miss(int index, int tag)
     int i=0, j=0;
     
     /* Note: item 0 is the least recently used cache slot -- so replace it */
-    
+    for(i = 0; i < cache_assoc; i++) {
+        if(cache[index].assoc[i].vb == 1) {
+            break;
+        }
+    }
+    j = 1;
     /* percolate everything up */
+    for(j = 1; j < i; ++j) {        
+        int currentTag = cache[index].assoc[j].tag;
+        cache[index].assoc[j-1].tag = cache[index].assoc[j].tag;
+    }
+
+    if(i == cache_assoc) {
+        cache[index].assoc[i - 1].tag = tag;
+        cache[index].assoc[i-1].vb = 1;
+    }
+    else {
+        cache[index].assoc[i].tag = tag;
+        cache[index].assoc[i].vb = 1;
+    }
+
+
+    cache_miss++;
+    
 }
 
 /*
@@ -217,6 +243,7 @@ void iplc_sim_LRU_update_on_hit(int index, int assoc)
     }
     
     cache[index].replacement[cache_assoc-1] = assoc;
+    cache_hit++;
 }
 
 /*
@@ -227,20 +254,38 @@ void iplc_sim_LRU_update_on_hit(int index, int assoc)
  */
 int iplc_sim_trap_address(unsigned int address)
 {
+
     int i=0, index=0;
     int tag=0;
     int hit=0;
-    
+
+    //Grab the index using bit masking
+    index = (address >> cache_blockoffsetbits) % (1 << cache_index);
+    tag = address >> (cache_blockoffsetbits + cache_index);
+ 
+    for(i = 0; i < cache_assoc; i++) {
+
+        if(cache[index].assoc[i].tag == tag && cache[index].assoc[i].vb == 1) {
+            //we know that we've found a hit.. set hit to true and update our cache
+            iplc_sim_LRU_update_on_hit(index, i);
+            return 1; 
+
+        }
+        else if(i + 1 == cache_assoc) {
+            iplc_sim_LRU_replace_on_miss(index, tag);
+            return 0; 
+        }   
+    }   
     /* expects you to return 1 for hit, 0 for miss */
     return hit;
 }
-
 /*
  * Just output our summary statistics.
  */
 void iplc_sim_finalize()
 {
-    /* Finish processing all instructions in the Pipeline */
+    /* Finish processing all instructions 
+    in the Pipeline */
     while (pipeline[FETCH].itype != NOP  ||
            pipeline[DECODE].itype != NOP ||
            pipeline[ALU].itype != NOP    ||
@@ -324,25 +369,31 @@ void iplc_sim_push_pipeline_stage()
      */
     if (pipeline[MEM].itype == LW) {
         int inserted_nop = 0;
+
+        if(!iplc_sim_trap_address(pipeline[MEM].stage.lw.data_address)) {
+            pipeline_cycles += 9;
+        }
     }
     
     /* 4. Check for SW mem acess and data miss .. add delay cycles if needed */
     if (pipeline[MEM].itype == SW) {
+        if(!iplc_sim_trap_address(pipeline[MEM].stage.lw.data_address)) {
+            pipeline_cycles += 9;
+        }
     }
     
-    /* 5. Increment pipe_cycles 1 cycle for normal processing */
-    /* 6. push stages thru MEM->WB, ALU->MEM, DECODE->ALU, FETCH->ALU */
+    /* 5. Increment pipe_cycles 1 cycle for normal processing */    /* 6. push stages thru MEM->WB, ALU->MEM, DECODE->ALU, FETCH->ALU */
     
     // 7. This is a give'me -- Reset the FETCH stage to NOP via bezero */
     bzero(&(pipeline[FETCH]), sizeof(pipeline_t));
+    pipeline_cycles++;
 }
 
 /*
  * This function is fully implemented.  You should use this as a reference
  * for implementing the remaining instruction types.
  */
-void iplc_sim_process_pipeline_rtype(char *instruction, int dest_reg, int reg1, int reg2_or_constant)
-{
+void iplc_sim_process_pipeline_rtype(char *instruction, int dest_reg, int reg1, int reg2_or_constant) {
     /* This is an example of what you need to do for the rest */
     iplc_sim_push_pipeline_stage();
     
@@ -355,36 +406,66 @@ void iplc_sim_process_pipeline_rtype(char *instruction, int dest_reg, int reg1, 
     pipeline[FETCH].stage.rtype.dest_reg = dest_reg;
 }
 
-void iplc_sim_process_pipeline_lw(int dest_reg, int base_reg, unsigned int data_address)
-{
-    /* You must implement this function */
+void iplc_sim_process_pipeline_lw(int dest_reg, int base_reg, unsigned int data_address) {
+    
+
+    iplc_sim_push_pipeline_stage();
+   
+    pipeline[FETCH].itype = LW;
+    pipeline[FETCH].instruction_address = instruction_address;
+
+    pipeline[FETCH].stage.lw.base_reg = base_reg;
+    pipeline[FETCH].stage.lw.dest_reg = dest_reg;
+    pipeline[FETCH].stage.lw.data_address = data_address;
+    //incremenet cache access count because we accessed the cache to grab the desired data
+    cache_access++;
+
+
 }
 
-void iplc_sim_process_pipeline_sw(int src_reg, int base_reg, unsigned int data_address)
-{
-    /* You must implement this function */
+void iplc_sim_process_pipeline_sw(int src_reg, int base_reg, unsigned int data_address) {
+    iplc_sim_push_pipeline_stage();
+    pipeline[FETCH].itype = SW;
+    pipeline[FETCH].instruction_address = instruction_address;
+    pipeline[FETCH].stage.sw.base_reg = src_reg;
+    pipeline[FETCH].stage.sw.base_reg = base_reg;
+    pipeline[FETCH].stage.sw.data_address = data_address;
+    
+    //incremenet cache access count because we accessed the cache to grab the desired data
+    cache_access++;
+
 }
 
-void iplc_sim_process_pipeline_branch(int reg1, int reg2)
-{
-    /* You must implement this function */
+void iplc_sim_process_pipeline_branch(int reg1, int reg2) {
+    iplc_sim_push_pipeline_stage();
+    pipeline[FETCH].itype = BRANCH;
+    pipeline[FETCH].instruction_address = instruction_address;
+    
+    pipeline[FETCH].stage.branch.reg1 = reg1;
+    pipeline[FETCH].stage.branch.reg2 = reg2;
 }
 
-void iplc_sim_process_pipeline_jump(char *instruction)
-{
-    /* You must implement this function */
+void iplc_sim_process_pipeline_jump(char *instruction) {
+    iplc_sim_push_pipeline_stage();
+    pipeline[FETCH].itype = JUMP;
+    pipeline[FETCH].instruction_address = instruction_address;
+    strcpy( pipeline[FETCH].stage.jump.instruction, instruction );
 }
 
-void iplc_sim_process_pipeline_syscall()
-{
-    /* You must implement this function */
+void iplc_sim_process_pipeline_syscall() {
+    iplc_sim_push_pipeline_stage();
+    pipeline[FETCH].itype = SYSCALL;
+    pipeline[FETCH].instruction_address = instruction_address;
+
+
 }
 
-void iplc_sim_process_pipeline_nop()
-{
-    /* You must implement this function */
-}
+void iplc_sim_process_pipeline_nop() {
+    iplc_sim_push_pipeline_stage();
+    pipeline[FETCH].itype = NOP;
+    pipeline[FETCH].instruction_address = instruction_address;
 
+}
 /************************************************************************************************/
 /* parse Function *******************************************************************************/
 /************************************************************************************************/
@@ -429,8 +510,11 @@ void iplc_sim_parse_instruction(char *buffer)
         printf("Malformed instruction \n");
         exit(-1);
     }
+
+
     
     instruction_hit = iplc_sim_trap_address( instruction_address );
+    cache_access++;
     
     // if a MISS, then push current instruction thru pipeline
     if (!instruction_hit) {
