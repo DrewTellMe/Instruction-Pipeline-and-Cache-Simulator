@@ -72,6 +72,10 @@ unsigned int branch_predict_taken=0;
 unsigned int branch_count=0;
  unsigned int correct_branch_predictions=0;
 
+// //Added these vars
+// unsigned int temp_instruction_address = 0;
+// unsigned int missed_cont_cycles=0;
+
 unsigned int debug=0;
 unsigned int dump_pipeline=1;
 
@@ -200,14 +204,14 @@ void iplc_sim_LRU_replace_on_miss(int index, int tag)
     
     /* Note: item 0 is the least recently used cache slot -- so replace it */
     for(i = 0; i < cache_assoc; i++) {
-        if(cache[index].assoc[i].vb == 1) {
+        if(cache[index].assoc[i].vb != 1) {
             break;
         }
     }
-    j = 1;
+
     /* percolate everything up */
     for(j = 1; j < i; ++j) {        
-        int currentTag = cache[index].assoc[j].tag;
+        //int currentTag = cache[index].assoc[j].tag;
         cache[index].assoc[j-1].tag = cache[index].assoc[j].tag;
     }
 
@@ -220,10 +224,10 @@ void iplc_sim_LRU_replace_on_miss(int index, int tag)
         cache[index].assoc[i].vb = 1;
     }
 
-
     cache_miss++;
     
 }
+
 
 /*
  * iplc_sim_trap_address() determined the entry is in our cache.  Update its
@@ -257,7 +261,6 @@ int iplc_sim_trap_address(unsigned int address)
 
     int i=0, index=0;
     int tag=0;
-    int hit=0;
 
     //Grab the index using bit masking
     index = (address >> cache_blockoffsetbits) % (1 << cache_index);
@@ -271,13 +274,10 @@ int iplc_sim_trap_address(unsigned int address)
             return 1; 
 
         }
-        else if(i + 1 == cache_assoc) {
-            iplc_sim_LRU_replace_on_miss(index, tag);
-            return 0; 
-        }   
     }   
     /* expects you to return 1 for hit, 0 for miss */
-    return hit;
+    iplc_sim_LRU_replace_on_miss(index, tag);
+    return 0;
 }
 /*
  * Just output our summary statistics.
@@ -321,6 +321,8 @@ void iplc_sim_dump_pipeline()
     for (i = 0; i < MAX_STAGES; i++) {
         switch(i) {
             case FETCH:
+
+
                 printf("(cyc: %u) FETCH:\t %d: 0x%x \t", pipeline_cycles, pipeline[i].itype, pipeline[i].instruction_address);
                 break;
             case DECODE:
@@ -348,7 +350,7 @@ void iplc_sim_dump_pipeline()
  */
 void iplc_sim_push_pipeline_stage()
 {
-    int i;
+    //int i;
     int data_hit=1;
     
     /* 1. Count WRITEBACK stage is "retired" -- This I'm giving you */
@@ -360,33 +362,239 @@ void iplc_sim_push_pipeline_stage()
     }
     
     /* 2. Check for BRANCH and correct/incorrect Branch Prediction */
-    if (pipeline[DECODE].itype == BRANCH) {
-        int branch_taken = 0;
-    }
+    int branch_taken = 0;
+    if (pipeline[DECODE].itype == BRANCH){
     
+       
+        //If that happens, then we know the branch was taken
+        if (pipeline[FETCH].instruction_address != (pipeline[DECODE].instruction_address + 4)){
+                branch_taken = 1;
+         }
+        
+        //if branch is taken
+        if (branch_taken){
+            
+            //if Branch Prediction was: TAKEN increment correct_branch_predictions
+            if(branch_predict_taken){
+                correct_branch_predictions++;
+            }
+            
+            //Increment cycle count by 1 if prediction incorrect (incorrect prediction penalty)
+            else{
+                pipeline_cycles++;
+                
+                //Advance pipeline from DECODE to WRITEBACK and put a NOP in DECODE
+                pipeline[WRITEBACK].itype = pipeline[MEM].itype;
+                pipeline[WRITEBACK].instruction_address = pipeline[MEM].instruction_address;
+
+                pipeline[MEM].itype = pipeline[ALU].itype;
+                pipeline[MEM].instruction_address = pipeline[ALU].instruction_address;
+
+                pipeline[ALU].itype = pipeline[DECODE].itype;
+                pipeline[ALU].instruction_address = pipeline[DECODE].instruction_address;
+
+                pipeline[DECODE].itype = NOP;
+                pipeline[DECODE].instruction_address = 0x0;
+                if (pipeline[WRITEBACK].itype == LW){
+                    pipeline[WRITEBACK].stage.lw.data_address = pipeline[MEM].stage.lw.data_address;
+                }
+
+                 //When LW
+                if (pipeline[MEM].itype == LW){
+                    pipeline[MEM].stage.lw.data_address = pipeline[ALU].stage.lw.data_address;
+                }
+                    
+                //When LW
+                if (pipeline[ALU].itype == LW){
+                    pipeline[ALU].stage.lw.data_address = pipeline[DECODE].stage.lw.data_address;
+                }
+                
+
+                 //When SW
+                if (pipeline[WRITEBACK].itype == SW){
+                    pipeline[WRITEBACK].stage.sw.data_address = pipeline[MEM].stage.sw.data_address;
+                }
+                
+                //When SW
+                if (pipeline[MEM].itype == SW){
+                    pipeline[MEM].stage.sw.data_address = pipeline[ALU].stage.sw.data_address;
+                }
+
+                //When SW
+                if (pipeline[ALU].itype == SW){
+                    pipeline[ALU].stage.sw.data_address = pipeline[DECODE].stage.sw.data_address;
+                }
+                
+                //If there is a non NOP instruction in WRITEBACK, then increment inctr. count by 1
+                if( pipeline[WRITEBACK].instruction_address ){
+                    instruction_count++;    
+                }
+            }           
+        }
+        //if branch is not taken: we fall through the branch instruction
+        else{
+            
+            //if Branch Prediction was: NOT TAKEN increment correct_branch_predictions
+            if(!branch_predict_taken){
+                correct_branch_predictions++;
+            }
+            
+            //Increment cycle count by 1 if prediction incorrect (incorrect prediction penalty)
+            //Advance pipeline from DECODE to WRITEBACK and put a NOP in DECODE
+              //Increment cycle count by 1 if prediction incorrect (incorrect prediction penalty)
+            else{
+                pipeline_cycles++;
+                
+                //Advance pipeline from DECODE to WRITEBACK and put a NOP in DECODE
+                pipeline[WRITEBACK].itype = pipeline[MEM].itype;
+                pipeline[WRITEBACK].instruction_address = pipeline[MEM].instruction_address;
+
+                pipeline[MEM].itype = pipeline[ALU].itype;
+                pipeline[MEM].instruction_address = pipeline[ALU].instruction_address;
+
+                pipeline[ALU].itype = pipeline[DECODE].itype;
+                pipeline[ALU].instruction_address = pipeline[DECODE].instruction_address;
+
+                pipeline[DECODE].itype = NOP;
+                pipeline[DECODE].instruction_address = 0x0;
+
+                // If the instruction is LW
+                if (pipeline[WRITEBACK].itype == LW){
+                    pipeline[WRITEBACK].stage.lw.data_address = pipeline[MEM].stage.lw.data_address;
+                }
+
+           
+                if (pipeline[MEM].itype == LW){
+                    pipeline[MEM].stage.lw.data_address = pipeline[ALU].stage.lw.data_address;
+                }
+                    
+          
+                if (pipeline[ALU].itype == LW){
+                    pipeline[ALU].stage.lw.data_address = pipeline[DECODE].stage.lw.data_address;
+                }
+                
+                // SW
+                if (pipeline[WRITEBACK].itype == SW){
+                    pipeline[WRITEBACK].stage.sw.data_address = pipeline[MEM].stage.sw.data_address;
+                }
+                
+                
+                if (pipeline[MEM].itype == SW){
+                    pipeline[MEM].stage.sw.data_address = pipeline[ALU].stage.sw.data_address;
+                }
+
+               
+                if (pipeline[ALU].itype == SW){
+                    pipeline[ALU].stage.sw.data_address = pipeline[DECODE].stage.sw.data_address;
+                }
+                
+                if( pipeline[WRITEBACK].instruction_address ){
+                    instruction_count++;    
+                }
+            }  
+        }
+    }
     /* 3. Check for LW delays due to use in ALU stage and if data hit/miss
      *    add delay cycles if needed.
      */
     if (pipeline[MEM].itype == LW) {
-        int inserted_nop = 0;
-
-        if(!iplc_sim_trap_address(pipeline[MEM].stage.lw.data_address)) {
+        data_hit = iplc_sim_trap_address(pipeline[MEM].stage.lw.data_address); 
+        if(data_hit == 0)
+        {
+            printf("Data Miss %x \n", pipeline[MEM].stage.lw.data_address);
             pipeline_cycles += 9;
+        }
+        else
+        {
+            printf("Data Hit %x \n", pipeline[MEM].stage.sw.data_address);
         }
     }
     
     /* 4. Check for SW mem acess and data miss .. add delay cycles if needed */
     if (pipeline[MEM].itype == SW) {
-        if(!iplc_sim_trap_address(pipeline[MEM].stage.lw.data_address)) {
-            pipeline_cycles += 9;
+        data_hit = iplc_sim_trap_address(pipeline[MEM].stage.sw.data_address);
+        if(data_hit == 0)
+        {
+            printf("Data Miss %x \n", pipeline[MEM].stage.sw.data_address);
+            pipeline_cycles +=9;
+        }
+        else
+        {
+            printf("Data Hit %x \n", pipeline[MEM].stage.sw.data_address);
         }
     }
     
-    /* 5. Increment pipe_cycles 1 cycle for normal processing */    /* 6. push stages thru MEM->WB, ALU->MEM, DECODE->ALU, FETCH->ALU */
+    /* 5. Increment pipe_cycles 1 cycle for normal processing */
+    pipeline_cycles++;
+    /* 6. push stages thru MEM Forwarded to WB, ALU Forwarded to MEM, DECODE Forwarded to ALU, FETCH Forwarded to ALU */
+    // MEM Forwarded to WB 
+    pipeline[WRITEBACK].itype = pipeline[MEM].itype;
+    pipeline[WRITEBACK].instruction_address = pipeline[MEM].instruction_address;
+    
+    // LW
+    if (pipeline[WRITEBACK].itype == LW){
+        pipeline[WRITEBACK].stage.lw.data_address = pipeline[MEM].stage.lw.data_address;
+    }
+    // SW
+    if (pipeline[WRITEBACK].itype == SW){
+        pipeline[WRITEBACK].stage.sw.data_address = pipeline[MEM].stage.sw.data_address;
+    }
+    
+    //ALU Forwarded to MEM //////////////////////////////////////////////////////////////////////////////////////
+    pipeline[MEM].itype = pipeline[ALU].itype;
+    pipeline[MEM].instruction_address = pipeline[ALU].instruction_address;
+    
+    // LW
+    if (pipeline[MEM].itype == LW){
+        pipeline[MEM].stage.lw.data_address = pipeline[ALU].stage.lw.data_address;
+    }
+    // SW
+    if (pipeline[MEM].itype == SW){
+        pipeline[MEM].stage.sw.data_address = pipeline[ALU].stage.sw.data_address;
+    }
+    
+    //DECODE Forwarded to ALU ////////////////////////////////////////////////////////////////////////////////////
+    pipeline[ALU].itype = pipeline[DECODE].itype;
+    pipeline[ALU].instruction_address = pipeline[DECODE].instruction_address;
+    
+    // LW
+    if (pipeline[ALU].itype == LW){
+        pipeline[ALU].stage.lw.data_address = pipeline[DECODE].stage.lw.data_address;
+    }
+    // SW
+    if (pipeline[ALU].itype == SW){
+        pipeline[ALU].stage.sw.data_address = pipeline[DECODE].stage.sw.data_address;
+    }
+    
+    //FETCH Forwarded to DECODE////////////////////////////////////////////////////////////////////////////////////
+    pipeline[DECODE].itype = pipeline[FETCH].itype;
+    pipeline[DECODE].instruction_address = pipeline[FETCH].instruction_address;
+    
+    // LW
+    if (pipeline[DECODE].itype == LW){
+        pipeline[DECODE].stage.lw.data_address = pipeline[FETCH].stage.lw.data_address;
+    }
+    // SW
+    if (pipeline[DECODE].itype == SW){
+        pipeline[DECODE].stage.sw.data_address = pipeline[FETCH].stage.sw.data_address;
+    }
+    
+    if(pipeline[DECODE].stage.rtype.reg1 == pipeline[ALU].stage.rtype.dest_reg){
+        pipeline[ALU].stage.rtype.dest_reg = pipeline[DECODE].stage.rtype.reg1;
+    }
+    if(pipeline[DECODE].stage.rtype.reg2_or_constant == pipeline[ALU].stage.rtype.dest_reg){
+        pipeline[ALU].stage.rtype.dest_reg = pipeline[DECODE].stage.rtype.reg2_or_constant;
+    }
+    if(pipeline[DECODE].stage.rtype.reg1 == pipeline[MEM].stage.rtype.dest_reg){
+        pipeline[MEM].stage.rtype.dest_reg = pipeline[DECODE].stage.rtype.reg1;
+    }
+    if(pipeline[DECODE].stage.rtype.reg2_or_constant == pipeline[MEM].stage.rtype.dest_reg){
+        pipeline[MEM].stage.rtype.dest_reg = pipeline[DECODE].stage.rtype.reg2_or_constant;
+    }
     
     // 7. This is a give'me -- Reset the FETCH stage to NOP via bezero */
     bzero(&(pipeline[FETCH]), sizeof(pipeline_t));
-    pipeline_cycles++;
+
 }
 
 /*
@@ -524,6 +732,7 @@ void iplc_sim_parse_instruction(char *buffer)
         
         printf("INST MISS:\t Address 0x%x \n", instruction_address);
         
+
         for (i = pipeline_cycles, j = pipeline_cycles; i < j + CACHE_MISS_DELAY - 1; i++)
             iplc_sim_push_pipeline_stage();
     }
@@ -597,6 +806,7 @@ void iplc_sim_parse_instruction(char *buffer)
         }
     }
     else if (strncmp( instruction, "beq", 3 ) == 0) {
+        branch_count++;
         // don't need to worry about getting regs -- just insert -1 values
         iplc_sim_process_pipeline_branch(-1, -1);
     }
