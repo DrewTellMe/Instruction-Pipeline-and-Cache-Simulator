@@ -373,19 +373,19 @@ void iplc_sim_push_pipeline_stage()
                 branch_taken = 1;
          }
         
-        //if branch is taken
+        // This branch instruction is taken
         if (branch_taken){
             
-            //if Branch Prediction was: TAKEN increment correct_branch_predictions
+            //if Branch Prediction on the Mode Taken, then the branch prediction was correct
             if(branch_predict_taken){
                 correct_branch_predictions++;
             }
             
-            //Increment cycle count by 1 if prediction incorrect (incorrect prediction penalty)
+            // If the prediciton was wrong then there is a penalty
             else{
                 pipeline_cycles++;
                 
-                //Advance pipeline from DECODE to WRITEBACK and put a NOP in DECODE
+                // Forward DECODE to WRITEBACK 
                 pipeline[WRITEBACK].itype = pipeline[MEM].itype;
                 pipeline[WRITEBACK].instruction_address = pipeline[MEM].instruction_address;
 
@@ -395,10 +395,11 @@ void iplc_sim_push_pipeline_stage()
                 pipeline[ALU].itype = pipeline[DECODE].itype;
                 pipeline[ALU].instruction_address = pipeline[DECODE].instruction_address;
 
+                // Place NOP in DECODE
                 pipeline[DECODE].itype = NOP;
                 pipeline[DECODE].instruction_address = 0x0;
                 
-                 //Handeling our load word cases
+                // If LW
                 if (pipeline[WRITEBACK].itype == LW){
                     pipeline[WRITEBACK].stage.lw.data_address = pipeline[MEM].stage.lw.data_address;
                 }
@@ -409,7 +410,7 @@ void iplc_sim_push_pipeline_stage()
                     pipeline[ALU].stage.lw.data_address = pipeline[DECODE].stage.lw.data_address;
                 }
 
-                //Handeling our store word cases
+                // If SW
                 if (pipeline[WRITEBACK].itype == SW){
                     pipeline[WRITEBACK].stage.sw.data_address = pipeline[MEM].stage.sw.data_address;
                 }
@@ -422,27 +423,25 @@ void iplc_sim_push_pipeline_stage()
                     pipeline[ALU].stage.sw.data_address = pipeline[DECODE].stage.sw.data_address;
                 }
                 
-                //If there is a non NOP instruction in WRITEBACK, then increment inctr. count by 1
+                //Not NOP in WB, then add 1 to IC
                 if( pipeline[WRITEBACK].instruction_address ){
                     instruction_count++;    
                 }
             }           
         }
-        //if branch is not taken: we fall through the branch instruction
+        // This branch instruction is not taken
         else if (!branch_taken){
             
-            //if Branch Prediction was: NOT TAKEN increment correct_branch_predictions
+            //if Branch Prediction on the Mode Not Taken, then the branch prediction was correct
             if(!branch_predict_taken){
                 correct_branch_predictions++;
             }
             
-            //Increment cycle count by 1 if prediction incorrect (incorrect prediction penalty)
-            //Advance pipeline from DECODE to WRITEBACK and put a NOP in DECODE
-              //Increment cycle count by 1 if prediction incorrect (incorrect prediction penalty)
+            // If the prediciton was wrong then there is a penalty
             else{
                 pipeline_cycles++;
                 
-                //Advance pipeline from DECODE to WRITEBACK and put a NOP in DECODE
+                // Forward DECODE to WRITEBACK 
                 pipeline[WRITEBACK].itype = pipeline[MEM].itype;
                 pipeline[WRITEBACK].instruction_address = pipeline[MEM].instruction_address;
 
@@ -452,10 +451,11 @@ void iplc_sim_push_pipeline_stage()
                 pipeline[ALU].itype = pipeline[DECODE].itype;
                 pipeline[ALU].instruction_address = pipeline[DECODE].instruction_address;
 
+                // Place NOP in DECODE
                 pipeline[DECODE].itype = NOP;
                 pipeline[DECODE].instruction_address = 0x0;
 
-                // If the instruction is LW
+                // If LW
                 if (pipeline[WRITEBACK].itype == LW){
                     pipeline[WRITEBACK].stage.lw.data_address = pipeline[MEM].stage.lw.data_address;
                 }
@@ -470,7 +470,7 @@ void iplc_sim_push_pipeline_stage()
                     pipeline[ALU].stage.lw.data_address = pipeline[DECODE].stage.lw.data_address;
                 }
                 
-                // SW
+                // If SW
                 if (pipeline[WRITEBACK].itype == SW){
                     pipeline[WRITEBACK].stage.sw.data_address = pipeline[MEM].stage.sw.data_address;
                 }
@@ -484,7 +484,8 @@ void iplc_sim_push_pipeline_stage()
                 if (pipeline[ALU].itype == SW){
                     pipeline[ALU].stage.sw.data_address = pipeline[DECODE].stage.sw.data_address;
                 }
-                
+                //Not NOP in WB, then add 1 to IC
+
                 if( pipeline[WRITEBACK].instruction_address ){
                     instruction_count++;    
                 }
