@@ -203,6 +203,8 @@ void iplc_sim_LRU_replace_on_miss(int index, int tag)
     int i=0, j=0;
     
     /* Note: item 0 is the least recently used cache slot -- so replace it */
+    
+    //find where in the cache we have an invalid bit, and replace that slot with our new tag and valid bit
     for(i = 0; i < cache_assoc; i++) {
         if(cache[index].assoc[i].vb != 1) {
             break;
@@ -210,13 +212,13 @@ void iplc_sim_LRU_replace_on_miss(int index, int tag)
     }
 
     /* percolate everything up */
-    for(j = 1; j < i; ++j) {        
-        //int currentTag = cache[index].assoc[j].tag;
-        cache[index].assoc[j-1].tag = cache[index].assoc[j].tag;
+    for(j = 1; j < i; j++) {        
+        int currentTag = cache[index].assoc[j].tag;
+        cache[index].assoc[j-1].tag = currentTag;
     }
 
     if(i == cache_assoc) {
-        cache[index].assoc[i - 1].tag = tag;
+        cache[index].assoc[i-1].tag = tag;
         cache[index].assoc[i-1].vb = 1;
     }
     else {
@@ -224,6 +226,7 @@ void iplc_sim_LRU_replace_on_miss(int index, int tag)
         cache[index].assoc[i].vb = 1;
     }
 
+    //increment our cache miss count
     cache_miss++;
     
 }
@@ -262,10 +265,14 @@ int iplc_sim_trap_address(unsigned int address)
     int i=0, index=0;
     int tag=0;
 
-    //Grab the index using bit masking
+    //Calculate our index and tag using bit masking based off of user inputted parameters
     index = (address >> cache_blockoffsetbits) % (1 << cache_index);
     tag = address >> (cache_blockoffsetbits + cache_index);
- 
+
+    //print out current index, address and tag on each instruction..
+    printf("Address %x: Tag= %x, Index= %x\n", address, tag, index);
+
+    //Using on our index and tag values we can update our cache based on whether we have a hit or miss
     for(i = 0; i < cache_assoc; i++) {
 
         if(cache[index].assoc[i].tag == tag && cache[index].assoc[i].vb == 1) {
@@ -343,15 +350,12 @@ void iplc_sim_dump_pipeline()
         }
     }
 }
-
 /*
  * Check if various stages of our pipeline require stalls, forwarding, etc.
  * Then push the contents of our various pipeline stages through the pipeline.
  */
 void iplc_sim_push_pipeline_stage()
 {
-    //int i;
-    int data_hit=1;
     
     /* 1. Count WRITEBACK stage is "retired" -- This I'm giving you */
     if (pipeline[WRITEBACK].instruction_address) {
@@ -364,9 +368,7 @@ void iplc_sim_push_pipeline_stage()
     /* 2. Check for BRANCH and correct/incorrect Branch Prediction */
     int branch_taken = 0;
     if (pipeline[DECODE].itype == BRANCH){
-    
-       
-        //If that happens, then we know the branch was taken
+        
         if (pipeline[FETCH].instruction_address != (pipeline[DECODE].instruction_address + 4)){
                 branch_taken = 1;
          }
@@ -395,32 +397,27 @@ void iplc_sim_push_pipeline_stage()
 
                 pipeline[DECODE].itype = NOP;
                 pipeline[DECODE].instruction_address = 0x0;
+                
+                 //Handeling our load word cases
                 if (pipeline[WRITEBACK].itype == LW){
                     pipeline[WRITEBACK].stage.lw.data_address = pipeline[MEM].stage.lw.data_address;
                 }
-
-                 //When LW
                 if (pipeline[MEM].itype == LW){
                     pipeline[MEM].stage.lw.data_address = pipeline[ALU].stage.lw.data_address;
                 }
-                    
-                //When LW
                 if (pipeline[ALU].itype == LW){
                     pipeline[ALU].stage.lw.data_address = pipeline[DECODE].stage.lw.data_address;
                 }
-                
 
-                 //When SW
+                //Handeling our store word cases
                 if (pipeline[WRITEBACK].itype == SW){
                     pipeline[WRITEBACK].stage.sw.data_address = pipeline[MEM].stage.sw.data_address;
                 }
                 
-                //When SW
                 if (pipeline[MEM].itype == SW){
                     pipeline[MEM].stage.sw.data_address = pipeline[ALU].stage.sw.data_address;
                 }
 
-                //When SW
                 if (pipeline[ALU].itype == SW){
                     pipeline[ALU].stage.sw.data_address = pipeline[DECODE].stage.sw.data_address;
                 }
@@ -432,7 +429,7 @@ void iplc_sim_push_pipeline_stage()
             }           
         }
         //if branch is not taken: we fall through the branch instruction
-        else{
+        else if (!branch_taken){
             
             //if Branch Prediction was: NOT TAKEN increment correct_branch_predictions
             if(!branch_predict_taken){
@@ -494,33 +491,30 @@ void iplc_sim_push_pipeline_stage()
             }  
         }
     }
+
     /* 3. Check for LW delays due to use in ALU stage and if data hit/miss
      *    add delay cycles if needed.
      */
-    if (pipeline[MEM].itype == LW) {
-        data_hit = iplc_sim_trap_address(pipeline[MEM].stage.lw.data_address); 
-        if(data_hit == 0)
-        {
-            printf("Data Miss %x \n", pipeline[MEM].stage.lw.data_address);
+   if (pipeline[MEM].itype == LW) {
+        int instructionAddress = pipeline[MEM].stage.lw.data_address;
+        if(!iplc_sim_trap_address(instructionAddress)) {
             pipeline_cycles += 9;
+            printf("DATA MISS Address 0x%x\n", instructionAddress);
         }
-        else
-        {
-            printf("Data Hit %x \n", pipeline[MEM].stage.sw.data_address);
+        else {
+            printf("DATA HIT Address 0x%x\n", instructionAddress);
         }
     }
     
     /* 4. Check for SW mem acess and data miss .. add delay cycles if needed */
     if (pipeline[MEM].itype == SW) {
-        data_hit = iplc_sim_trap_address(pipeline[MEM].stage.sw.data_address);
-        if(data_hit == 0)
-        {
-            printf("Data Miss %x \n", pipeline[MEM].stage.sw.data_address);
-            pipeline_cycles +=9;
+        int instructionAddress = pipeline[MEM].stage.sw.data_address;
+        if(!iplc_sim_trap_address(instructionAddress)) {
+            pipeline_cycles += 9;
+            printf("DATA MISS Address 0x%x", instructionAddress);
         }
-        else
-        {
-            printf("Data Hit %x \n", pipeline[MEM].stage.sw.data_address);
+        else {
+            printf("DATA HIT Address 0x%x", instructionAddress);
         }
     }
     
@@ -531,7 +525,7 @@ void iplc_sim_push_pipeline_stage()
     pipeline[WRITEBACK].itype = pipeline[MEM].itype;
     pipeline[WRITEBACK].instruction_address = pipeline[MEM].instruction_address;
     
-    // LW
+    //LW
     if (pipeline[WRITEBACK].itype == LW){
         pipeline[WRITEBACK].stage.lw.data_address = pipeline[MEM].stage.lw.data_address;
     }
@@ -540,7 +534,7 @@ void iplc_sim_push_pipeline_stage()
         pipeline[WRITEBACK].stage.sw.data_address = pipeline[MEM].stage.sw.data_address;
     }
     
-    //ALU Forwarded to MEM //////////////////////////////////////////////////////////////////////////////////////
+    //ALU Forwarded to MEM 
     pipeline[MEM].itype = pipeline[ALU].itype;
     pipeline[MEM].instruction_address = pipeline[ALU].instruction_address;
     
@@ -553,7 +547,7 @@ void iplc_sim_push_pipeline_stage()
         pipeline[MEM].stage.sw.data_address = pipeline[ALU].stage.sw.data_address;
     }
     
-    //DECODE Forwarded to ALU ////////////////////////////////////////////////////////////////////////////////////
+    //DECODE Forwarded to ALU
     pipeline[ALU].itype = pipeline[DECODE].itype;
     pipeline[ALU].instruction_address = pipeline[DECODE].instruction_address;
     
@@ -566,7 +560,7 @@ void iplc_sim_push_pipeline_stage()
         pipeline[ALU].stage.sw.data_address = pipeline[DECODE].stage.sw.data_address;
     }
     
-    //FETCH Forwarded to DECODE////////////////////////////////////////////////////////////////////////////////////
+    //FETCH Forwarded to DECODE
     pipeline[DECODE].itype = pipeline[FETCH].itype;
     pipeline[DECODE].instruction_address = pipeline[FETCH].instruction_address;
     
@@ -579,6 +573,7 @@ void iplc_sim_push_pipeline_stage()
         pipeline[DECODE].stage.sw.data_address = pipeline[FETCH].stage.sw.data_address;
     }
     
+    //handeling our register forwarding..
     if(pipeline[DECODE].stage.rtype.reg1 == pipeline[ALU].stage.rtype.dest_reg){
         pipeline[ALU].stage.rtype.dest_reg = pipeline[DECODE].stage.rtype.reg1;
     }
