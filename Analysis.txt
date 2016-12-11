@@ -1,0 +1,44 @@
+Group Members: Kasra Sheik, Marcos Banchik, Steve Bloniarz, Erik Sauliner
+
+Participation Breakdown:
+
+	Cache Functions:
+		Hit/Miss Functions
+			- Kasra Sheik
+		Trap Address:
+			- Marcos Banchik
+			- Kasra Sheik 
+		Calculating Tag and Index values
+			- Kasra Sheik
+			- Erik Saulnier
+		Checking for a hit or a miss in the cache: 
+			- Kasra Sheik
+
+	Pipeline Functions:
+		Push Pipeline Stage: 
+			- Marcos Banchik
+		Sim Process Functions:
+			-Steve Bloniarz 
+			-Kasra Sheik
+			-Marcos Banchik
+	Write-Up And Analysis:
+		- Steve Bloniarz
+		- Erik Saulnier
+
+Results from 18 different inputs: 
+		
+
+
+Analysis:
+ 
+
+
+
+
+
+
+
+
+
+
+
